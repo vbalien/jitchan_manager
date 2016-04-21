@@ -16,12 +16,12 @@ manager = Manager(app)
 
 class DebugCommand(Command):
     def run(self):
-        app.run(host='0.0.0.0', port=8080, debug=True)
+        app.run(host='0.0.0.0', port=8000, debug=True)
 
 
 class RunCommand(Command):
     def run(self):
-        app.run(host='0.0.0.0', port=8080, debug=False)
+        app.run(host='0.0.0.0', port=8000, debug=False)
 
 
 class AniDownCommand(Command):
