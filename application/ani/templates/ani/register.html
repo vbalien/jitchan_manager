@@ -1,0 +1,11 @@
+{% extends 'ani/layout.html' %}
+{% block title %}Register{% endblock %}
+{% block content %}
+<form method="POST">
+    <input name="title" type="text" placeholder="제목"/>
+    <input name="query" type="text" placeholder="검색어"/>
+    <input name="sync_index" type="text" placeholder="애니시아 애니번호"/>
+    <input type="submit"/>
+</form>
+{{ error }}
+{% endblock %}

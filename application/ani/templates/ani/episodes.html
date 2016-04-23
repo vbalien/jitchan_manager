@@ -1,0 +1,7 @@
+{% extends 'ani/layout.html' %}
+{% block title %}Episodes{% endblock %}
+{% block content %}
+{% for ep in ani.episodes %}
+<a href="{{ url_for('ani.episode_view', animation_id=ani.id, ep_num=ep.ep_num) }}">{{ ep.ep_num }}</a>
+{% endfor %}
+{% endblock %}

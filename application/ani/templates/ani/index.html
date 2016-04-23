@@ -1,1 +1,14 @@
-ani index
+{% extends 'ani/layout.html' %}
+{% block title %}Main{% endblock %}
+{% block content %}
+{% if loggedin %}
+<a href="./logout">로그아웃</a>
+{% else %}
+<a href="./login">로그인</a>
+{% endif %}
+<a href="./register">애니등록</a>
+<hr/>
+{% for item in anilist %}
+<a href="{{ url_for('ani.episodes', animation_id=item.id) }}">{{ item.title }}</a>
+{% endfor %}
+{% endblock %}

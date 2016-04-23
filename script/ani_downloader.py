@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 import http.client
+import io
 import json
+import os
 import re
 import urllib.parse
 from xml.dom.minidom import parseString
 from zipfile import ZipFile
 
 import transmissionrpc
+
+from application.ani.model import Animation
+from application.ani.model import Episode
 
 
 class AniDownloader(object):
@@ -29,6 +34,7 @@ class AniDownloader(object):
         conn.request('POST', '/anitime/cap', params, headers)
         res = conn.getresponse()
         data = json.loads(res.read().decode())
+
         if len(data) == 0:
             return None
 
@@ -39,48 +45,47 @@ class AniDownloader(object):
             if item['s'] == built_ep:
                 sub_maker_url = urllib.parse.urlparse('http://' + item['a'])
                 referer = 'http://' + item['a']
-                break
-        if sub_maker_url is None:
-            return None
-        conn = http.client.HTTPConnection(sub_maker_url.netloc)
-        conn.request('GET', sub_maker_url.path+'?'+sub_maker_url.query)
-        res = conn.getresponse()
-        charset = 'utf-8'
-        m = re.search(r"charset=(.*[^;\r\n])", res.getheader('Content-Type'))
-        if m:
-            charset = m.group(1)
-        source = res.read().decode(charset)
-        frame_pos = source.find('<frame id="mainFrame" name="mainFrame" src="')
-        if frame_pos != -1:  # naver blog frame
-            source = source[
-                frame_pos + len('<frame id="mainFrame" name="mainFrame" src="'):]
-            nblog_url = source[:source.find('"')]
-            conn = http.client.HTTPConnection('blog.naver.com')
-            conn.request('GET', nblog_url)
+            if sub_maker_url is None:
+                continue
+            conn = http.client.HTTPConnection(sub_maker_url.netloc)
+            conn.request('GET', sub_maker_url.path+'?'+sub_maker_url.query)
             res = conn.getresponse()
+            charset = 'utf-8'
             m = re.search(r"charset=(.*[^;\r\n])", res.getheader('Content-Type'))
             if m:
                 charset = m.group(1)
             source = res.read().decode(charset)
+            frame_pos = source.find('<frame id="mainFrame" name="mainFrame" src="')
+            if frame_pos != -1:  # naver blog frame
+                source = source[
+                    frame_pos + len('<frame id="mainFrame" name="mainFrame" src="'):]
+                nblog_url = source[:source.find('"')]
+                conn = http.client.HTTPConnection('blog.naver.com')
+                conn.request('GET', nblog_url)
+                res = conn.getresponse()
+                m = re.search(r"charset=(.*[^;\r\n])", res.getheader('Content-Type'))
+                if m:
+                    charset = m.group(1)
+                source = res.read().decode(charset)
 
-        m = re.search(
-            r"(?P<zip>http:\/\/[^ \'\n]*\.zip)|(?P<smi>http:\/\/[^ \'\n]*\.smi)",
-            source
-        )
-        if m:
-            group = m.groupdict()
-            if group['smi'] is not None:
-                return {
-                    'type': 'smi',
-                    'url': group['smi'],
-                    'referer': referer
-                }
-            else:
-                return {
-                    'type': 'zip',
-                    'url': group['zip'],
-                    'referer': referer
-                }
+            m = re.search(
+                r"(?P<zip>http:\/\/[^ \'\n]*\.zip)|(?P<smi>http:\/\/[^ \'\n]*\.smi)",
+                source
+            )
+            if m:
+                group = m.groupdict()
+                if group['smi'] is not None:
+                    return {
+                        'type': 'smi',
+                        'url': group['smi'],
+                        'referer': referer
+                    }
+                else:
+                    return {
+                        'type': 'zip',
+                        'url': group['zip'],
+                        'referer': referer
+                    }
         return None
 
     def getTorrentUrl(self, query, latest_ep):
@@ -105,8 +110,10 @@ class AniDownloader(object):
             if (latest_ep + 1) == int(group['ep']):
                 link = item.getElementsByTagName('link')[0].firstChild.data
                 return {
-                    'all': group['all'],
+                    'filename': group['all'],
+                    'ext': group['ext'],
                     'title': group['title'],
+                    'ep': group['ep'],
                     'url': link
                 }
         return None
@@ -123,78 +130,103 @@ class AniDownloader(object):
         return best_enc
 
     def download(self):
-        sub_i = 3545
-        query = 'Gyakuten Saiban'
-        latest_ep = 2
+        active_anilist = self.db.session.query(Animation).all()
+        for ani in active_anilist:
+            sub_i = ani.sync_index
+            query = ani.query
 
-        torrent = self.getTorrentUrl(query, latest_ep)
-        if torrent is not None:
-            tc = transmissionrpc.Client(
-                self.app.config['TRANSMISSION_HOST'],
-                port=self.app.config['TRANSMISSION_PORT'],
-                user=self.app.config['TRANSMISSION_USER'],
-                password=self.app.config['TRANSMISSION_PASSWORD']
-            )
-            tc.add_uri(torrent['url'])
+            while True:
+                torrent = self.getTorrentUrl(query, ani.latest_ep_num)
+                if torrent is None:
+                    break
+                down_dir = self.app.config['ANI_DOWNLOAD_DIR'] + '/' + torrent['title']
+                sync_dir = self.app.config['ANI_SYNC_DIR'] + '/' + torrent['title']
+                if not os.path.isdir(sync_dir):
+                    os.makedirs(sync_dir)
+                tc = transmissionrpc.Client(
+                    self.app.config['TRANSMISSION_HOST'],
+                    port=self.app.config['TRANSMISSION_PORT'],
+                    user=self.app.config['TRANSMISSION_USER'],
+                    password=self.app.config['TRANSMISSION_PASSWORD']
+                )
+                torrent_obj = tc.add_torrent(
+                    torrent['url'],
+                    download_dir=down_dir
+                )
+                episode = Episode()
+                episode.ep_num = torrent['ep']
+                episode.torrent_id = torrent_obj.id
+                episode.video_path = '{0}/{1}.{2}'.format(down_dir, torrent['filename'], torrent['ext'])
 
-            latest_ep += 1
-            suburl = self.getSubURL(sub_i, latest_ep)
-            headers = {'Referer': suburl['referer'], 'User-Agent': 'curl/7.43.0'}
-            print(suburl['type'])
-            global smi_data
-            smi_data = None
-            if suburl['type'] == 'smi':
-                sub_url = urllib.parse.urlparse(suburl['url'])
-                conn = http.client.HTTPConnection(sub_url.netloc)
-                conn.request('GET', sub_url.path + '?' + sub_url.query, None, headers)
-                res = conn.getresponse()
-                smi_data = res.read()
-            elif suburl['type'] == 'zip':
-                sub_url = urllib.parse.urlparse(suburl['url'])
-                conn = http.client.HTTPConnection(sub_url.netloc)
-                conn.request('GET', sub_url.path + '?' + sub_url.query, None, headers)
-                res = conn.getresponse()
-                data = res.read()
-                with open('tmp.zip', 'wb') as fp:
-                    fp.write(data)
-                with ZipFile('tmp.zip') as myzip:
-                    name_best = None
-                    name = None
-                    for item in myzip.namelist():
-                        if item.find('.smi') != -1:
-                            name = item
-                        m = re.match(r'.*(ohy|leo).*.smi', item)
-                        if m:
-                            name_best = item
-                    if name_best is None:
-                        name_best = name
-                    with myzip.open(name_best) as myfile:
-                        smi_data = myfile.read()
+                ani.latest_ep_num += 1
+                self.db.session.commit()
 
-            charset = self.guess_encoding(smi_data)
-            smi_data = smi_data.decode(charset)
-            reiter = re.finditer(
-                r"<SYNC Start=(?P<time>\d*)[^>]*><P Class=(?P<lang>\w*)[^>]*>(?P<text>.*&nbsp;|.*\n.*[^<SYNC]*)",
-                smi_data,
-                flags=re.I
-            )
-            sync_list = []
-            out_data = "WEBVTT\n\n"
-            for item in reiter:
-                sync_list.append(item.groupdict())
-            for index, item in enumerate(sync_list):
-                beginTime = int(item['time'])
-                try:
-                    endTime = int(sync_list[index+1]['time'])
-                except IndexError:
-                    endTime = beginTime + 10000
-                else:
-                    pass
-                text = item['text'].strip()
-                if text != '&nbsp;':
-                    text = re.sub("<br>|<br\/>", "", text, flags=re.I)
-                    out_data += self.samiTime2vttTime(beginTime) + " --> " + self.samiTime2vttTime(endTime) + "\n"
-                    out_data += text + "\n\n"
+                suburl = self.getSubURL(sub_i, ani.latest_ep_num)
+                if suburl is not None:
+                    headers = {'Referer': suburl['referer'], 'User-Agent': 'curl/7.43.0'}
+                    global smi_data
+                    smi_data = None
+                    sub_url = urllib.parse.urlparse(suburl['url'])
+                    while True:
+                        conn = http.client.HTTPConnection(sub_url.netloc)
+                        conn.request(
+                            'GET',
+                            sub_url.path + ((sub_url.query != '') and '?' + sub_url.query or ''),
+                            None,
+                            headers
+                        )
+                        res = conn.getresponse()
+                        if res.status != 302:
+                            break
+                        else:
+                            sub_url = urllib.parse.urlparse(res.getheader('Location'))
+                    if suburl['type'] == 'smi':
+                        smi_data = res.read()
+                    elif suburl['type'] == 'zip':
+                        zip_object = io.BytesIO(res.read())
+                        with ZipFile(zip_object) as myzip:
+                            name_best = None
+                            name = None
+                            for item in myzip.namelist():
+                                if item.find('.smi') != -1:
+                                    name = item
+                                    m = re.match(r'.*(ohy|leo).*.smi', item, flags=re.I)
+                                    if m:
+                                        name_best = item
+                                        break
+                            if name_best is None:
+                                name_best = name
+                            with myzip.open(name_best) as myfile:
+                                smi_data = myfile.read()
 
-            with open("{0}.vtt".format(torrent['all']), 'wb') as fp:
-                fp.write(out_data.encode('utf-8'))
+                    charset = self.guess_encoding(smi_data)
+                    smi_data = smi_data.decode(charset)
+                    reiter = re.finditer(
+                        r"<SYNC Start=(?P<time>\d*)[^>]*><P Class=(?P<lang>\w*)[^>]*>(?P<text>(?:(?!<SYNC)[\s\S])*)",
+                        smi_data,
+                        flags=re.I
+                    )
+                    sync_list = []
+                    out_data = "WEBVTT\n\n"
+                    for item in reiter:
+                        sync_list.append(item.groupdict())
+                    for index, item in enumerate(sync_list):
+                        beginTime = int(item['time'])
+                        try:
+                            endTime = int(sync_list[index+1]['time'])
+                        except IndexError:
+                            endTime = beginTime + 10000
+                        else:
+                            pass
+                        text = item['text'].strip()
+                        if text != '&nbsp;':
+                            text = re.sub("<br>|<br\/>|</.*>", "", text, flags=re.I)
+                            out_data += self.samiTime2vttTime(beginTime) + \
+                                " --> " + self.samiTime2vttTime(endTime) + "\n"
+                            out_data += text + "\n\n"
+                    syncname = "{0}/{1}.vtt".format(sync_dir, torrent['filename'])
+                    with open(syncname, 'wb') as fp:
+                        fp.write(out_data.encode('utf-8'))
+                    episode.sync_path = syncname
+                ani.episodes.append(episode)
+                self.db.session.commit()
