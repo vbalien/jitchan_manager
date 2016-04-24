@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from datetime import datetime
+from datetime import time
 import http.client
 import io
 import json
@@ -41,7 +43,7 @@ class AniDownloader(object):
         built_ep = "{0:05d}".format(ep * 10)
         sub_maker_url = None
         referer = ''
-        for item in data:
+        for item in data[::-1]:
             if item['s'] == built_ep:
                 sub_maker_url = urllib.parse.urlparse('http://' + item['a'])
                 referer = 'http://' + item['a']
@@ -119,8 +121,10 @@ class AniDownloader(object):
         return None
 
     def guess_encoding(self, text):
-        guess_list = ['euc-kr', 'utf-8', 'utf-16']
+        guess_list = ['euc-kr', 'utf-8', 'utf-16', None]
         for best_enc in guess_list:
+            if best_enc is None:
+                return None
             try:
                 str(text, best_enc, "strict")
             except UnicodeDecodeError:
@@ -130,10 +134,108 @@ class AniDownloader(object):
         return best_enc
 
     def download(self):
-        active_anilist = self.db.session.query(Animation).all()
+        now_datetime = datetime.now()
+        min_hour = now_datetime.hour - 6
+        min_time = time(hour=min_hour % 12, minute=now_datetime.minute)
+        my_oper = None
+        anissia_week = []
+        quarter_datetimes = [
+            {  # 1분기
+                'start': datetime(year=now_datetime.year-1, month=12, day=1),
+                'end': datetime(year=now_datetime.year, month=5, day=1)
+            },
+            {  # 2분기
+                'start': datetime(year=now_datetime.year, month=3, day=1),
+                'end': datetime(year=now_datetime.year, month=8, day=1)
+            },
+            {  # 3분기
+                'start': datetime(year=now_datetime.year, month=6, day=1),
+                'end': datetime(year=now_datetime.year, month=11, day=1)
+            },
+            {  # 4분기
+                'start': datetime(year=now_datetime.year, month=9, day=1),
+                'end': datetime(year=now_datetime.year+1, month=2, day=1)
+            },
+        ]
+        quart_index = 0
+        for index, quart_datetime in enumerate(quarter_datetimes):
+            if now_datetime >= quart_datetime['start'] and now_datetime <= quart_datetime['end']:
+                quart_index = index
+                break
+
+        if min_hour < 0:
+            my_oper = self.db.or_(
+                self.db.and_(
+                    Animation.week == (now_datetime.weekday() - 1) % 7,
+                    self.db.or_(
+                        Animation.release_datetime.is_(None),
+                        self.db.and_(
+                            self.db.func.time(Animation.release_datetime) >= min_time,
+                            Animation.release_datetime >= quarter_datetimes[quart_index]['start'],
+                            Animation.release_datetime <= quarter_datetimes[quart_index]['end']
+                        )
+                    )
+                ),
+                self.db.and_(
+                    Animation.week == now_datetime.weekday(),
+                    self.db.or_(
+                        Animation.release_datetime.is_(None),
+                        self.db.and_(
+                            self.db.func.time(Animation.release_datetime) <= datetime.now().time(),
+                            Animation.release_datetime >= quarter_datetimes[quart_index]['start'],
+                            Animation.release_datetime <= quarter_datetimes[quart_index]['end']
+                        )
+                    )
+                )
+            )
+            params = urllib.parse.urlencode({'w': now_datetime.weekday() % 7})
+            headers = {"Content-type": "application/x-www-form-urlencoded"}
+            conn = http.client.HTTPConnection("www.anissia.net")
+            conn.request('POST', '/anitime/list', params, headers)
+            res = conn.getresponse()
+            anissia_week += json.loads(res.read().decode())
+        else:
+            my_oper = self.db.and_(
+                Animation.week == now_datetime.weekday(),
+                self.db.or_(
+                    Animation.release_datetime.is_(None),
+                    self.db.and_(
+                        self.db.func.time(Animation.release_datetime) >= min_time,
+                        self.db.func.time(Animation.release_datetime) <= datetime.now().time(),
+                        Animation.release_datetime >= quarter_datetimes[quart_index]['start'],
+                        Animation.release_datetime <= quarter_datetimes[quart_index]['end']
+                    )
+                )
+            )
+        params = urllib.parse.urlencode({'w': (now_datetime.weekday() + 1) % 7})
+        headers = {"Content-type": "application/x-www-form-urlencoded"}
+        conn = http.client.HTTPConnection("www.anissia.net")
+        conn.request('POST', '/anitime/list', params, headers)
+        res = conn.getresponse()
+        anissia_week += json.loads(res.read().decode())
+
+        active_anilist = self.db.session.query(Animation).filter(
+            my_oper
+        ).all()
+        print(active_anilist)
         for ani in active_anilist:
             sub_i = ani.sync_index
             query = ani.query
+
+            if ani.release_datetime is None:
+                for item in anissia_week:
+                    print(int(item['i']), ani.sync_index)
+                    if int(item['i']) == ani.sync_index:
+                        release_datetime = datetime(
+                            year=int(item['sd'][:4]),
+                            month=int(item['sd'][4:6]),
+                            day=int(item['sd'][-2:]),
+                            hour=int(item['t'][:2]),
+                            minute=int(item['t'][2:])
+                        )
+                        ani.release_datetime = release_datetime
+                        self.db.session.commit()
+                        break
 
             while True:
                 torrent = self.getTorrentUrl(query, ani.latest_ep_num)
@@ -200,6 +302,8 @@ class AniDownloader(object):
                                 smi_data = myfile.read()
 
                     charset = self.guess_encoding(smi_data)
+                    if charset is None:
+                        continue
                     smi_data = smi_data.decode(charset)
                     reiter = re.finditer(
                         r"<SYNC Start=(?P<time>\d*)[^>]*><P Class=(?P<lang>\w*)[^>]*>(?P<text>(?:(?!<SYNC)[\s\S])*)",
@@ -221,6 +325,8 @@ class AniDownloader(object):
                         text = item['text'].strip()
                         if text != '&nbsp;':
                             text = re.sub("<br>|<br\/>|</.*>", "", text, flags=re.I)
+                            if text.strip() == '':
+                                continue
                             out_data += self.samiTime2vttTime(beginTime) + \
                                 " --> " + self.samiTime2vttTime(endTime) + "\n"
                             out_data += text + "\n\n"
