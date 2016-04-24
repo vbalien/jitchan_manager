@@ -8,6 +8,8 @@ class Animation(db.Model):
     title = db.Column(db.String(100), nullable=False)
     query = db.Column(db.String(100), nullable=False)
     sync_index = db.Column(db.Integer)
+    release_datetime = db.Column(db.DateTime)
+    week = db.Column(db.Integer, nullable=False)
     update_time = db.Column(db.DateTime, default=datetime.now(), onupdate=datetime.now())
     latest_ep_num = db.Column(db.Integer, default=0)
 
@@ -17,6 +19,9 @@ class Animation(db.Model):
         lazy='dynamic',
         foreign_keys='Episode.animation_id'
     )
+
+    def __repr__(self):
+        return '<Animation %r>' % self.title
 
 
 class Episode(db.Model):
