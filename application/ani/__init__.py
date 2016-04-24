@@ -91,6 +91,7 @@ def register():
             title=request.form['title'],
             query=request.form['query'],
             sync_index=request.form['sync_index'],
+            week=request.form['week'],
         )
         db.session.add(ani)
         db.session.commit()
