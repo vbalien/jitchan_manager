@@ -1,14 +1,24 @@
 <!doctype html>
 <html lang="ko">
 <head>
-  <meta charset="utf-8">
-  <meta name="description" content="Ani">
-  <meta http-equiv="imagetoolbar" content="no">
-  <meta http-equiv="X-UA-Compatible" content="IE=10,chrome=1">
-  <meta name="viewport" content="user-scalable=no, initial-scale=1.0,maximum-scale=1.0, minimum-scale=1.0, width=device-width" />
-  <title>{% block title %}{% endblock %} - Ani</title>
+    <meta charset="utf-8">
+    <meta name="description" content="Ani">
+    <meta http-equiv="imagetoolbar" content="no">
+    <meta http-equiv="X-UA-Compatible" content="IE=10,chrome=1">
+    <meta name="viewport" content="user-scalable=no, initial-scale=1.0,maximum-scale=1.0, minimum-scale=1.0, width=device-width" />
+    <title>{% block title %}{% endblock %} - Ani</title>
+{%- block head %}
+{% endblock -%}
 </head>
 <body>
-  {% block content %}{% endblock %}
+    <h1><a href="{{ url_for('ani.index') }}">Ani</a></h1>
+    {%- if loggedin %}
+    <a href="{{ url_for('ani.logout') }}">로그아웃</a>
+    <a href="{{ url_for('ani.register') }}">애니등록</a>
+    {%- else %}
+    <a href="{{ url_for('ani.login', redirect_url=request.path) }}">로그인</a>
+    {%- endif %}
+    <hr/>
+    {%- block content %}{% endblock -%}
 </body>
 </html>

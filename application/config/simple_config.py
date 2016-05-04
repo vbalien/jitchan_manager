@@ -1,6 +1,7 @@
 class Config(object):
     # base config
     SECRET_KEY = 'development'
+    SERVER_NAME = 'localhost'
 
     # Database
     SQLALCHEMY_TRACK_MODIFICATIONS = True

@@ -1,7 +1,9 @@
+.ftpconfig
 .env
 __pycache__
 .cache
 
+*.log
 *.db
 *.pyc
 .DS_Store

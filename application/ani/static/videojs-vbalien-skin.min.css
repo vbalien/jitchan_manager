@@ -1,0 +1,74 @@
+
+.vjs-fluid {
+  overflow: hidden;
+}
+
+.video-js .vjs-big-play-button {
+    top: 50%; /* errrr, why isn't the play button centered in the default skin? :) */
+    left: 50%;
+    margin:-22px 0 0 -48px; /* the old negative margin trick */
+}
+
+#vbalien_video .vjs-control-bar {
+  display: block;
+}
+#vbalien_video .vjs-control {
+  position: absolute;
+}
+#vbalien_video .vjs-icon-subtitles,
+#vbalien_video .vjs-subtitles-button {
+    right: 25px;
+}
+#vbalien_video .vjs-progress-control {
+  bottom: 28px;
+  left: 0;
+  height: 10px;
+  width: 100%;
+}
+#vbalien_video .vjs-progress-holder {
+  position: absolute;
+  left: 0;
+  margin: 0;
+  height: 8px;
+  width: 100%;
+}
+#vbalien_video .vjs-play-progress,
+#vbalien_video .vjs-load-progress {
+  height: 8px;
+}
+#vbalien_video .vjs-play-progress:before {
+  font-size: 12px;
+  top: -2px;
+  text-shadow: 0 0 2px black;
+}
+#vbalien_video .vjs-current-time {
+  display: block;
+  left: 35px;
+}
+#vbalien_video .vjs-time-divider {
+  position: absolute;
+  display: block;
+  left: 70px;
+}
+#vbalien_video .vjs-remaining-time {
+  display: none;
+}
+#vbalien_video .vjs-duration {
+  display: block;
+  left: 70px;
+}
+#vbalien_video .vjs-volume-menu-button {
+  position: absolute;
+  bottom: 0;
+  right: 55px;
+}
+#vbalien_video .vjs-playback-rate {
+  position: absolute;
+  bottom: 0;
+  right: 28px;
+}
+#vbalien_video .vjs-fullscreen-control {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+}

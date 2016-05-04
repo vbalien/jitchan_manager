@@ -1,14 +1,24 @@
 {% extends 'ani/layout.html' %}
 {% block title %}Main{% endblock %}
 {% block content %}
-{% if loggedin %}
-<a href="./logout">로그아웃</a>
-{% else %}
-<a href="./login">로그인</a>
-{% endif %}
-<a href="./register">애니등록</a>
-<hr/>
-{% for item in anilist %}
-<a href="{{ url_for('ani.episodes', animation_id=item.id) }}">{{ item.title }}</a>
-{% endfor %}
+    <h2>애니 목록</h2>
+    <ul>
+    {%- set week_cur = -1 -%}
+    {%- set week_match = ['월', '화', '수', '목', '금', '토', '일'] -%}
+    {%- for item in anilist -%}
+        {%- if week_cur != item.week -%}
+            {%- set week_cur = item.week %}
+        <li>
+            <h3>{{ week_match[week_cur] }}</h3>
+            <ul>
+        {%- endif %}
+                <li>
+                    <a href="{{ url_for('ani.episodes', animation_id=item.id) }}">{{ item.title }}</a>
+                </li>
+        {%- if loop.last or week_cur != anilist[loop.index].week %}
+            </ul>
+        </li>
+        {%- endif -%}
+    {% endfor %}
+    </ul>
 {% endblock %}
