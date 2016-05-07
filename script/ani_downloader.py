@@ -74,7 +74,8 @@ class AniDownloader(object):
         self.app = app
         self.db = db
 
-    def getSubURL(self, index, ep):
+    def getSubURL(self, index, ep, pass_num=0):
+        pass_count = 0
         ep = int(ep)
         params = urllib.parse.urlencode({'i': index})
         headers = {"Content-type": "application/x-www-form-urlencoded"}
@@ -92,8 +93,12 @@ class AniDownloader(object):
         for item in data[::-1]:
             print('ep:', item['s'], built_ep)
             if item['s'] == built_ep:
-                sub_maker_url = urllib.parse.urlparse('http://' + item['a'])
-                referer = 'http://' + item['a']
+                if pass_count == pass_num:
+                    sub_maker_url = urllib.parse.urlparse('http://' + item['a'])
+                    referer = 'http://' + item['a']
+                else:
+                    pass_count = pass_count + 1
+                    continue
             else:
                 continue
             print('sub_maker_url:', sub_maker_url)
@@ -350,55 +355,61 @@ class AniDownloader(object):
                 self.db.session.commit()
 
     def getSyncData(self, sync_index, episode):
-        suburl = self.getSubURL(sync_index, episode)
-        if suburl is not None:
-            headers = {'Referer': suburl['referer'], 'User-Agent': 'curl/7.43.0'}
-            global smi_data
-            smi_data = None
-            sub_url = urllib.parse.urlparse(suburl['url'])
-            while True:
-                conn = http.client.HTTPConnection(sub_url.netloc)
-                conn.request(
-                    'GET',
-                    sub_url.path + ((sub_url.query != '') and '?' + sub_url.query or ''),
-                    None,
-                    headers
-                )
-                res = conn.getresponse()
-                print('sub_url:', sub_url)
-                if res.status != 302:
-                    break
-                else:
-                    sub_url = urllib.parse.urlparse(res.getheader('Location'))
-            if suburl['type'] == 'smi':
-                smi_data = res.read()
-            elif suburl['type'] == 'zip':
-                zip_object = io.BytesIO(res.read())
-                with ZipFile(zip_object) as myzip:
-                    name_best = None
-                    name = None
-                    for item in myzip.namelist():
-                        if item.lower().find('.smi') != -1:
-                            name = item
-                            m = re.match(
-                                r'.*(ohy|leo| s\.| s |-s\.| s-).*smi$',
-                                item,
-                                flags=re.I)
-                            if m:
-                                name_best = item
+        pass_num = 0
+        while True:
+            suburl = self.getSubURL(sync_index, episode, pass_num)
+            if suburl is not None:
+                headers = {'Referer': suburl['referer'], 'User-Agent': 'curl/7.43.0'}
+                global smi_data
+                smi_data = None
+                sub_url = urllib.parse.urlparse(suburl['url'])
+                while True:
+                    conn = http.client.HTTPConnection(sub_url.netloc)
+                    conn.request(
+                        'GET',
+                        sub_url.path + ((sub_url.query != '') and '?' + sub_url.query or ''),
+                        None,
+                        headers
+                    )
+                    res = conn.getresponse()
+                    print('sub_url:', sub_url)
+                    if res.status != 302:
+                        break
+                    else:
+                        sub_url = urllib.parse.urlparse(res.getheader('Location'))
+                if suburl['type'] == 'smi':
+                    smi_data = res.read()
+                elif suburl['type'] == 'zip':
+                    zip_object = io.BytesIO(res.read())
+                    with ZipFile(zip_object) as myzip:
+                        name_best = None
+                        name = None
+                        for item in myzip.namelist():
+                            if item.lower().find('.smi') != -1:
+                                name = item
                                 m = re.match(
-                                    r'.*[\D]{0}[\D].*smi$'.format(
-                                        episode),
-                                    item)
+                                    r'.*(ohy|leo| s\.| s |-s\.| s-).*smi$',
+                                    item,
+                                    flags=re.I)
                                 if m:
-                                    break
-                    if name_best is None:
-                        name_best = name
-                    with myzip.open(name_best) as myfile:
-                        smi_data = myfile.read()
+                                    name_best = item
+                                    m = re.match(
+                                        r'.*[\D]{0}[\D].*smi$'.format(
+                                            episode),
+                                        item)
+                                    if m:
+                                        break
+                        if name_best is None:
+                            name_best = name
+                        with myzip.open(name_best) as myfile:
+                            smi_data = myfile.read()
 
-            charset = guess_encoding(smi_data)
-            if charset is None:
+                charset = guess_encoding(smi_data)
+                if charset is None:
+                    print("Pass this sync")
+                    pass_num = pass_num + 1
+                    continue
+                smi_data = smi_data.decode(charset)
+                return smi2vtt(smi_data)
+            else:
                 return None
-            smi_data = smi_data.decode(charset)
-            return smi2vtt(smi_data)
