@@ -2,6 +2,7 @@
 {% block title %}Episodes{% endblock %}
 {% block content %}
     <h2>{{ ani.title }}</h2>
+    <a href="{{ url_for('ani.episodes_podcast', animation_id=ani.id) }}">Podcast</a>
     <ul>
     {%- for ep in ani.episodes %}
         <li>

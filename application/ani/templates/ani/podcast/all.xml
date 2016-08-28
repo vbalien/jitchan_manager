@@ -1,0 +1,17 @@
+{% extends 'ani/podcast/layout.xml' %}
+{% block title %}모든 애니메이션{% endblock %}
+{% block description %}모든 애니메이션{% endblock %}
+{% block items %}
+    {%- for ep in episodes %}
+    <item>
+        <title>{{ ep.animation.title }} - {{ ep.ep_num }}화</title>
+        <link>{{ url_for('ani.episode_view', animation_id=ep.animation.id, ep_num=ep.ep_num) }}</link>
+        <guid>{{ ep.getVideoURL() }}</guid>
+        <description>{{ ep.animation.title }} - {{ ep.ep_num }}화</description>
+        <enclosure url="{{ ep.getVideoURL() }}" type="video/mp4"/>
+        <category>Podcasts</category>
+        <pubDate>{{ ep.upload_time }}</pubDate>
+        <itunes:explicit>No</itunes:explicit>
+    </item>
+    {%- endfor %}
+{% endblock %}

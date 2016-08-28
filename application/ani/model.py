@@ -2,6 +2,7 @@ from application import app
 from application import db
 from datetime import datetime
 from os.path import isfile
+from urllib import parse
 
 
 class Animation(db.Model):
@@ -16,6 +17,7 @@ class Animation(db.Model):
     week = db.Column(db.Integer, nullable=False)
     update_time = db.Column(db.DateTime, default=datetime.now(), onupdate=datetime.now())
     latest_ep_num = db.Column(db.Integer, default=0)
+    activate = db.Column(db.Boolean, default=True, server_default='1', nullable=False);
 
     episodes = db.relationship(
         'Episode',
@@ -57,10 +59,10 @@ class Episode(db.Model):
             )
 
     def getVideoURL(self):
-        return 'http://test.alien.moe:81/{title}/{filename}.{ext}'.\
+        return 'http://test.alien.moe/animations/{title}/{filename}.{ext}'.\
             format(
-                title=self.animation.synonyms,
-                filename=self.filename,
+                title=parse.quote(self.animation.synonyms),
+                filename=parse.quote(self.filename),
                 ext=self.video_ext
             )
 

@@ -8,7 +8,6 @@ import json
 import os
 import re
 import urllib.parse
-from xml.dom.minidom import parseString
 from zipfile import ZipFile
 
 import transmissionrpc
@@ -139,7 +138,10 @@ class AniDownloader(object):
                 m = re.search(r"charset=(.*[^;\r\n])", res.getheader('Content-Type'))
                 if m:
                     charset = m.group(1)
-                source = res.read().decode(charset)
+                try:
+                    source = res.read().decode(charset)
+                except UnicodeDecodeError:
+                    continue
 
             m = re.search(
                 r"(?P<zip>http:\/\/[^ \'\n]*\.zip)|(?P<smi>http:\/\/[^ \'\n]*\.smi)",
@@ -163,82 +165,49 @@ class AniDownloader(object):
 
     def getTorrentUrl(self, query, episode):
         conn = http.client.HTTPConnection('torrents.ohys.net')
-        conn.request('GET', '/rss.php?dir=torrent&q=' + urllib.parse.quote_plus(query))
+        conn.request('GET', '/json.php?dir=torrent&q=' + urllib.parse.quote_plus(query))
         res = conn.getresponse()
-        charset = 'utf-8'
-        m = re.search(r"charset=(.*[^;\r\n])", res.getheader('Content-Type'))
-        if m:
-            charset = m.group(1)
-        source = res.read().decode(charset)
-        items = parseString(source).getElementsByTagName('item')
+        items = json.loads(res.read().decode('utf-8-sig'))
         prog = re.compile(
-            r"(?P<filename>\[(?P<raw>.*)\] (?P<title>.*) - (?P<ep>.\d).*)\.(?P<ext>.*)\.torrent"
+            r"(?P<filename>\[(?P<raw>.*)\] (?P<title>.*) - (?P<ep>.\d)(?P<end>.*| END) \(.*\))\.(?P<ext>.*)\.torrent"
             )
         for item in items:
-            title = item.getElementsByTagName('title')[0].firstChild.data
+            title = item['t']
             m = prog.search(title)
             if m is None:
                 continue
             group = m.groupdict()
             if (episode + 1) == int(group['ep']):
-                link = item.getElementsByTagName('link')[0].firstChild.data
+                link = 'http://torrents.ohys.net/torrent/' + item['a']
                 return {
                     'filename': group['filename'],
                     'ext': group['ext'],
                     'title': group['title'],
                     'ep': group['ep'],
-                    'url': link
+                    'url': link,
+                    'end': group['end']
                 }
         return None
 
     def download(self):
         now_datetime = datetime.now()
-        min_hour = now_datetime.hour - 6
+        min_hour = now_datetime.hour - 12
         min_time = time(hour=min_hour % 12, minute=now_datetime.minute)
         my_oper = None
         anissia_week = []
-        quarter_datetimes = [
-            {  # 1분기
-                'start': datetime(year=now_datetime.year-1, month=12, day=1),
-                'end': datetime(year=now_datetime.year, month=5, day=1)
-            },
-            {  # 2분기
-                'start': datetime(year=now_datetime.year, month=3, day=1),
-                'end': datetime(year=now_datetime.year, month=8, day=1)
-            },
-            {  # 3분기
-                'start': datetime(year=now_datetime.year, month=6, day=1),
-                'end': datetime(year=now_datetime.year, month=11, day=1)
-            },
-            {  # 4분기
-                'start': datetime(year=now_datetime.year, month=9, day=1),
-                'end': datetime(year=now_datetime.year+1, month=2, day=1)
-            },
-        ]
-        quart_index = 0
-        for index, quart_datetime in enumerate(quarter_datetimes):
-            if now_datetime >= quart_datetime['start'] and now_datetime <= quart_datetime['end']:
-                quart_index = index
-                break
 
         if min_hour < 0:
             my_oper = self.db.or_(
                 Animation.release_datetime.is_(None),
                 self.db.and_(
                     Animation.week == (now_datetime.weekday() - 1) % 7,
-                    self.db.and_(
-                        self.db.func.time(Animation.release_datetime) >= min_time,
-                        Animation.release_datetime >= quarter_datetimes[quart_index]['start'],
-                        Animation.release_datetime <= quarter_datetimes[quart_index]['end']
-                    )
+                    self.db.func.time(Animation.release_datetime) >= min_time,
+                    Animation.activate == True
                 ),
                 self.db.and_(
                     Animation.week == now_datetime.weekday(),
-                    self.db.and_(
-                        self.db.func.time(Animation.release_datetime) <= datetime.now().time(),
-                        Animation.release_datetime >= quarter_datetimes[quart_index]['start'],
-                        Animation.release_datetime <= quarter_datetimes[quart_index]['end']
-                    )
+                    self.db.func.time(Animation.release_datetime) <= datetime.now().time(),
+                    Animation.activate == True
                 )
             )
             params = urllib.parse.urlencode({'w': now_datetime.weekday() % 7})
@@ -254,8 +223,7 @@ class AniDownloader(object):
                     Animation.week == now_datetime.weekday(),
                     self.db.func.time(Animation.release_datetime) >= min_time,
                     self.db.func.time(Animation.release_datetime) <= datetime.now().time(),
-                    Animation.release_datetime >= quarter_datetimes[quart_index]['start'],
-                    Animation.release_datetime <= quarter_datetimes[quart_index]['end']
+                    Animation.activate == True
                 )
             )
         params = urllib.parse.urlencode({'w': (now_datetime.weekday() + 1) % 7})
@@ -302,8 +270,7 @@ class AniDownloader(object):
                     print('none')
                     episode = [
                         item for item in ani.episodes
-                        if item.ep_num == ani.latest_ep_num
-                        and item.hasSync() is False
+                        if item.ep_num == ani.latest_ep_num and item.hasSync() is False
                         ]
                     if len(episode) == 0:
                         break
@@ -344,6 +311,10 @@ class AniDownloader(object):
                     ani.synonyms = torrent['title']
 
                 ani.latest_ep_num += 1
+
+                if torrent['end'] is not '':
+                    ani.activate = False;
+
                 self.db.session.commit()
 
                 # Sync
@@ -400,6 +371,10 @@ class AniDownloader(object):
                                     if m:
                                         break
                         if name_best is None:
+                            if name is None:
+                                print("Pass this sync")
+                                pass_num = pass_num + 1
+                                continue
                             name_best = name
                         with myzip.open(name_best) as myfile:
                             smi_data = myfile.read()

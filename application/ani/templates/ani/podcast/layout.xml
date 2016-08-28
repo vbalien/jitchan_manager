@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" version="2.0">
+  <channel>
+    <title>{% block title %}{% endblock %}</title>
+    <description>{% block description %}{% endblock %}</description>
+    <link>http://ani.alien.moe</link>
+    <language>ko-kr</language>
+    <itunes:author>vbalien@live.jp</itunes:author>
+    <itunes:owner>
+           <itunes:name>Jisu Kim</itunes:name>
+           <itunes:email>vbalien@live.jp</itunes:email>
+    </itunes:owner>
+    <itunes:explicit>No</itunes:explicit>
+    <itunes:category text="Animation">
+         <itunes:category text="Podcasting"/>
+    </itunes:category>
+    {% block items %}{% endblock %}
+    </channel>
+</rss>
